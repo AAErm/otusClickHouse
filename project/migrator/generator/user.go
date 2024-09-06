@@ -1,4 +1,4 @@
-package usergenerator
+package generator
 
 import (
 	"encoding/json"
