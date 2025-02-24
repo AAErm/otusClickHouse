@@ -24,7 +24,7 @@ services:
     container_name: clickhouse-server
     ports:
       - "8123:8123"
-      - "9000:9000"
+      - "9002:9000"
     volumes:
       - ./migrator/generator/data:/home/data
       - ./clickhouse-data:/var/lib/clickhouse

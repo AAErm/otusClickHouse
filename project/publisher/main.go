@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -16,27 +15,40 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-	"github.com/imega/mt"
 	"github.com/sirupsen/logrus"
+	"github.com/streadway/amqp"
 )
 
-var tableUsers = "oplati_users"
+var tableUsers = "users"
 
 func main() {
 	logger := newLogger()
 	// MassTransport
-	conf, err := mt.ParseConfig([]byte(os.Getenv("MT_CONFIG")))
+	connAMQP, err := amqp.Dial(os.Getenv("RABBITMQ_DSN"))
 	if err != nil {
-		logger.Fatalf("failed to parse masstransport config, %v", err)
+		log.Fatalf("Ошибка подключения к RabbitMQ: %s", err)
 	}
+	defer connAMQP.Close()
 
-	massT := mt.NewMT(
-		mt.WithAMQP(os.Getenv("RABBITMQ_DSN")),
-		mt.WithLogger(logger),
-		mt.WithConfig(conf),
+	// Создайте канал
+	ch, err := connAMQP.Channel()
+	if err != nil {
+		log.Fatalf("Ошибка создания канала: %s", err)
+	}
+	defer ch.Close()
+
+	// Объявите очередь
+	queueName := "clickhouse"
+	_, err = ch.QueueDeclare(
+		queueName,
+		true,
+		false,
+		false,
+		false,
+		nil,
 	)
 	if err != nil {
-		panic((err))
+		log.Fatalf("Ошибка объявления очереди: %s", err)
 	}
 
 	conn, err := connect()
@@ -47,20 +59,21 @@ func main() {
 	scheduler := gocron.NewScheduler(time.UTC)
 	ctx := context.Background()
 	scheduler.Every(5).Minutes().Do(func() {
+		logger.Println("start generate events")
 		query := fmt.Sprintf("SELECT COUNT(*) FROM %s", tableUsers)
 
-		var totalUsers int
+		var totalUsers uint64
 		err = conn.QueryRow(ctx, query).Scan(&totalUsers)
 		if err != nil {
 			logger.Fatalf("Ошибка выполнения запроса: %v", err)
 		}
 
 		randomThirdCount := totalUsers / 2000
-		query = fmt.Sprintf(`  
-		SELECT id, YearsOld, GenderCode  
-		FROM oplatiUsers  
-		ORDER BY rand()  
-		LIMIT %d  
+		query = fmt.Sprintf(`
+		SELECT id, years_old, gender_code
+		FROM users
+		ORDER BY rand()
+		LIMIT %d
 	`, randomThirdCount)
 
 		rows, err := conn.Query(ctx, query)
@@ -69,13 +82,18 @@ func main() {
 		}
 		defer rows.Close()
 
-		// Обработка выбранных пользователей
 		var events []domain.Event
 		for rows.Next() {
-			var user domain.User
-			if err := rows.Scan(&user.ID, &user.YearsOld, &user.GenderCode); err != nil {
+			var (
+				user  domain.User
+				ID    uint64
+				years uint8
+			)
+			if err := rows.Scan(&ID, &years, &user.GenderCode); err != nil {
 				log.Fatalf("Ошибка чтения строки: %v", err)
 			}
+			user.ID = int(ID)
+			user.YearsOld = int(years)
 			events = append(events, generator.GenerateEvent(user))
 		}
 
@@ -83,15 +101,27 @@ func main() {
 		if err != nil {
 			logger.Fatalf("failed to marshal events with error %v", err)
 		}
-		massT.Cast("clickhouse", mt.Request{
-			Header: mt.Header{
-				"method": "addEvents",
+		err = ch.Publish(
+			"clickhouse_bridge",
+			queueName+".events",
+			false,
+			false,
+			amqp.Publishing{
+				Headers: amqp.Table{
+					"method": "AddEvents",
+				},
+				ContentType: "application/json",
+				Body:        body,
 			},
-			Body: body,
-		})
+		)
+		if err != nil {
+			logger.Printf("failed to send events to rabbit %s", err)
+		}
 	})
 
 	scheduler.Every(10).Minutes().Do(func() {
+		logger.Println("start generate users")
+
 		newUsers, err := generator.GetUsers()
 		if err != nil {
 			logger.Fatalf("failed to get users %v", err)
@@ -101,13 +131,25 @@ func main() {
 			logger.Fatalf("failed to marshal events with error %v", err)
 		}
 
-		massT.Cast("clickhouse", mt.Request{
-			Header: mt.Header{
-				"method": "addUsers",
+		err = ch.Publish(
+			"clickhouse_bridge",
+			queueName+".users",
+			false,
+			false,
+			amqp.Publishing{
+				Headers: amqp.Table{
+					"method": "AddUsers",
+				},
+				ContentType: "application/json",
+				Body:        body,
 			},
-			Body: body,
-		})
+		)
+		if err != nil {
+			logger.Printf("failed to send users to rabbit %s", err)
+		}
 	})
+	logger.Print("publisher started")
+	scheduler.StartBlocking()
 }
 
 func newLogger() *logrus.Logger {
@@ -124,7 +166,7 @@ func connect() (driver.Conn, error) {
 	var (
 		ctx       = context.Background()
 		conn, err = clickhouse.Open(&clickhouse.Options{
-			Addr: []string{"clickhouse:9440"},
+			Addr: []string{"clickhouse:9000"},
 			Auth: clickhouse.Auth{
 				Database: os.Getenv("CLICKHOUSE_DB"),
 				Username: os.Getenv("CLICKHOUSE_USER"),
@@ -141,9 +183,6 @@ func connect() (driver.Conn, error) {
 
 			Debugf: func(format string, v ...interface{}) {
 				fmt.Printf(format, v)
-			},
-			TLS: &tls.Config{
-				InsecureSkipVerify: true,
 			},
 		})
 	)

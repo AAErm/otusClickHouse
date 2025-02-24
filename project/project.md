@@ -36,7 +36,7 @@ PARTITION BY toYYYYMM(timestamp)
 ORDER BY (timestamp, id)
 SETTINGS index_granularity = 8192;
 
-CREATE TABLE users (  
+CREATE TABLE users (
     id UInt64,
     last_name String,
     first_name String,
@@ -85,11 +85,29 @@ Ok.
 
 Для начала создаем соответствующую таблицу:
 ```sql
-CREATE TABLE services (  
-    id UInt64,          -- Уникальный идентификатор  
-    Name String,        -- Имя сервиса  
-    Category String     -- Категория сервиса  
-)  
-ENGINE = MergeTree()  
-ORDER BY id;            -- Индексация по id  
+CREATE TABLE services (
+    id UInt64,
+    Name String,
+    Category String
+)
+ENGINE = MergeTree()
+ORDER BY id;
 ```
+Далее запускаем скрипт, который записывает все значения `JSONEachRow` и генерирует для них `id rowNumberInAllBlocks() + (SELECT max(id) FROM services) AS id`
+
+4. Теперь давайте заведем наш паблишер. Он будет генерировать сообщения в rabbitMQ. Мы же в свою очередь будем вычитывать с помощью Clickhouse эти сообщения и пополнять таблицу events.
+...
+
+# Смотрим на дешборд
+
+- Почему это интересно? Что мы собственно хотим увидить?
+
+1. На дешборде можно наблюдать за тем, как бы произошло распределение покупок по месяцам.
+
+2. Так же на что тратит та или иная возврастная аудитория деньги с помощью сервиса "Оплати".
+
+3. В каких чаще используется
+
+4. Какими банками пользуются пользователи
+
+Анализ этой и другой информации может оказаться полезным потребителю.
