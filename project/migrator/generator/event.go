@@ -20,7 +20,17 @@ var cities = []string{
 	"Орша",
 }
 
-func generateEvents(user domain.User) []domain.Event {
+func GenerateEvent(user domain.User) domain.Event {
+	serviceID, price := generateServiceIDAndPrice(user.YearsOld, user.GenderCode)
+	return domain.Event{
+		Price:      price,
+		ServiceID:  serviceID,
+		LocationID: generateLocationID(),
+		Timestamp:  time.Now(),
+	}
+}
+
+func GenerateEventsYear(user domain.User) []domain.Event {
 	numEvents := getNumberOfEvents(user.YearsOld)
 	events := make([]domain.Event, numEvents)
 
@@ -31,11 +41,21 @@ func generateEvents(user domain.User) []domain.Event {
 			Price:      price, // Assuming random price generation, can be modified
 			ServiceID:  serviceID,
 			LocationID: generateLocationID(),
-			Timestamp:  time.Now(),
+			Timestamp:  generateTimestamp(),
 		}
 	}
 
 	return events
+}
+
+func generateTimestamp() time.Time {
+	now := time.Now()
+	yearAgo := now.AddDate(-1, 0, 0)
+	randomFactor := rand.Float64()
+	biasedFactor := randomFactor * randomFactor
+	duration := now.Sub(yearAgo)
+	offset := time.Duration(float64(duration) * biasedFactor)
+	return yearAgo.Add(offset)
 }
 
 func getNumberOfEvents(yearsOld int) int {

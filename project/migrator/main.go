@@ -2,17 +2,21 @@ package main
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
+	"os"
+	"strings"
 	"sync"
 
-	usergenerator "github.com/AAErm/otusClickHouse/project/migrator/userGenerator"
+	_ "github.com/go-sql-driver/mysql"
+
+	"github.com/AAErm/otusClickHouse/project/migrator/generator"
 )
 
 const totalRecords = 1_500_000
 
 func main() {
-	dsn := "username:password@tcp(localhost:3306)/dbname"
-	db, err := sql.Open("mysql", dsn)
+	db, err := sql.Open("mysql", os.Getenv("MYSQL_DSN"))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -29,17 +33,35 @@ func main() {
 			defer wg.Done()
 
 			for j := 0; j < recordsPerGoroutine/100; j++ {
-				randomUsers, err := usergenerator.GetUsers()
+				randomUsers, err := generator.GetUsers()
 				if err != nil {
 					log.Println("Error fetching users:", err)
 					continue
 				}
 
 				for _, randomUser := range randomUsers {
-					_, err := db.Exec("INSERT INTO users (FirstName, FatherName, LastName, GenderCode, Bank, YearsOld) VALUES (?, ?, ?, ?, ?, ?)",
-						randomUser.FatherName, randomUser.FatherName, randomUser.LastName, randomUser.GenderCode, randomUser.Bank, randomUser.YearsOld)
+					_, err := db.Exec("INSERT INTO users (first_name, father_name, last_name, gender_code, bank, years_old) VALUES (?, ?, ?, ?, ?, ?)",
+						randomUser.FirstName, randomUser.FatherName, randomUser.LastName, randomUser.GenderCode, randomUser.Bank, randomUser.YearsOld)
 					if err != nil {
 						log.Println("Error inserting user:", err)
+					}
+
+					query := "INSERT INTO events (price, service_id, location_id, timestamp) VALUES "
+					events := generator.GenerateEventsYear(randomUser)
+					values := make([]string, 0, len(events))
+					for _, event := range events {
+						value := fmt.Sprintf("(%d, %d, %d, '%s')",
+							event.Price,
+							event.ServiceID,
+							event.LocationID,
+							event.Timestamp.Format("2006-01-02 15:04:05"),
+						)
+						values = append(values, value)
+					}
+					query += strings.Join(values, ", ") + ";"
+					_, err = db.Exec(query)
+					if err != nil {
+						log.Println("Error inserting events:", err)
 					}
 				}
 			}

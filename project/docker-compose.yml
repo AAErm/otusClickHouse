@@ -1,0 +1,71 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    volumes:
+      - ./testdata/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
+      - ./testdata/config/rabbitmq.json:/etc/rabbitmq/definitions.json
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: qwerty
+    volumes:
+      - ./testdata/schema/sql:/docker-entrypoint-initdb.d
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3.6.48-alpine
+    container_name: clickhouse-server
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    volumes:
+      - ./migrator/generator/data:/home/data
+      - ./clickhouse-data:/var/lib/clickhouse
+      - ./config.xml:/etc/clickhouse-server/users.d/config.xml
+    environment:
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ''
+      CLICKHOUSE_DB: default
+
+  migrator-mysql:
+    build:
+      context: .  
+      dockerfile: ./migrator/Dockerfile
+    container_name: migrator-mysql
+    depends_on:
+      - mysql
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: root
+      MYSQL_PASSWORD: qwerty
+      MYSQL_DATABASE: appdb
+      MYSQL_DSN: root:qwerty@tcp(mysql:3306)/appdb  
+
+  publisher-rabbitmq:
+    build: 
+      context: .  
+      dockerfile: ./publisher/Dockerfile  
+    container_name: publisher-rabbitmq
+    depends_on:
+      - rabbitmq
+      - clickhouse
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - RABBITMQ_PORT=5672
+      - RABBITMQ_USER=guest
+      - RABBITMQ_PASSWORD=guest
+      - RABBITMQ_DSN=amqp://guest:guest@rabbitmq:5672/
+      - CLICKHOUST_DSN=clickhouse://default:@clickhouse-server:9000/default
+      - MT_CONFIG={"services":{"clickhouse":{"exchange":{"name":"amq.direct","type":"direct","durable":true,"queue":{"name":"clickhouse","durable":true},"binding":{"key":"clickhouse"}}}}}
+
+volumes:
+  mysql_data:
+  clickhouse_data:

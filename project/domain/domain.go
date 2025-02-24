@@ -2,7 +2,7 @@ package domain
 
 import "time"
 
-// от 5 до 200 ивентов на использование
+// от 10 до 300 ивентов на использование
 type Event struct {
 	ID         int
 	Price      int
@@ -18,22 +18,6 @@ type Service struct {
 	Category string
 }
 
-type Location struct {
-	ID   int
-	City string
-}
-
-// около 1.5млн юзеров
-type User struct {
-	ID         int
-	LastName   string `json:"LastName"`
-	FirstName  string `json:"FirstName"`
-	FatherName string `json:"FatherName"`
-	YearsOld   int    `json:"YearsOld"`
-	GenderCode string `json:"GenderCode"`
-	Bank       string
-}
-
 // Минск: ~20% (около 2 миллионов жителей) 46.95
 // Гомель: ~4.5% (около 500 тысяч жителей) 10.56
 // Могилёв: ~3.6% (около 380 тысяч жителей) 8.45
@@ -44,3 +28,18 @@ type User struct {
 // Борисов: ~1.1% (около 135 тысяч жителей) 2.58
 // Пинск: ~1% (около 130 тысяч жителей) 2.35
 // Орша: ~1% (около 120 тысяч жителей) 2.35
+type Location struct {
+	ID   int
+	City string
+}
+
+// около 1.5млн юзеров
+type User struct {
+	ID         int
+	LastName   string `json:"last_name"`
+	FirstName  string `json:"first_name"`
+	FatherName string `json:"father_name"`
+	YearsOld   int    `json:"years_old"`
+	GenderCode string `json:"gender_code"`
+	Bank       string `json:"bank"`
+}
